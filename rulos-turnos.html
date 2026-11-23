@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rulos · Turnos</title>
+<style>
+  :root {
+    --fondo: #f6f3ee;
+    --panel: #ffffff;
+    --texto: #2f3a36;
+    --suave: #6b7671;
+    --borde: #ddd6cb;
+    --libre: #eef5f0;
+    --libre-hover: #d9ebdf;
+    --libre-borde: #b9d6c2;
+    --ocupado: #e7ecf5;
+    --ocupado-borde: #b7c3db;
+    --ocupado-texto: #34456b;
+    --pasado: #f0eeea;
+    --acento: #5b8a72;
+    --acento-oscuro: #47705c;
+    --peligro: #b0574f;
+    --hoy: #fbf3e0;
+    --hoy-borde: #e2c98f;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 20px; }
+  body {
+    margin: 0;
+    background: var(--fondo);
+    color: var(--texto);
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    line-height: 1.4;
+  }
+  .contenedor { max-width: 1400px; margin: 0 auto; padding: 20px 24px 40px; }
+
+  header.titulo {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; margin-bottom: 18px;
+  }
+  header.titulo h1 { margin: 0; font-size: 2rem; color: var(--acento-oscuro); letter-spacing: .5px; }
+  header.titulo .fecha-hoy { color: var(--suave); font-size: 1rem; }
+
+  /* Resumen */
+  .resumen { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .tarjeta {
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 14px; padding: 16px 20px;
+  }
+  .tarjeta h2 { margin: 0 0 10px; font-size: 1.1rem; color: var(--suave); font-weight: 600; }
+  .numero { font-size: 2.2rem; font-weight: 700; color: var(--acento-oscuro); line-height: 1; }
+  .lista-hoy { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .lista-hoy li { display: flex; gap: 14px; font-size: 1rem; }
+  .lista-hoy .hora { font-weight: 700; min-width: 4.2em; }
+  .lista-hoy .serv { color: var(--suave); }
+  .vacio { color: var(--suave); font-size: 1rem; margin-top: 10px; }
+  .desglose { margin-top: 10px; color: var(--suave); font-size: .95rem; }
+
+  /* Navegación */
+  .nav {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .nav .rango { font-size: 1.25rem; font-weight: 600; }
+  .nav .botones { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 1rem; cursor: pointer; border-radius: 10px;
+    padding: 10px 18px; border: 1px solid var(--borde); background: var(--panel); color: var(--texto);
+  }
+  button:hover { background: #f1ede6; }
+  button:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
+  button.primario { background: var(--acento); border-color: var(--acento); color: #fff; }
+  button.primario:hover { background: var(--acento-oscuro); }
+  button.peligro { background: var(--peligro); border-color: var(--peligro); color: #fff; }
+  button.peligro:hover { background: #95463f; }
+
+  /* Grilla */
+  .grilla-envoltura { overflow-x: auto; background: var(--panel); border: 1px solid var(--borde); border-radius: 14px; }
+  table.grilla { border-collapse: separate; border-spacing: 6px; width: 100%; min-width: 900px; }
+  .grilla th { font-weight: 600; padding: 8px 4px; font-size: 1rem; }
+  .grilla th.dia { border-radius: 10px; }
+  .grilla th.dia .nombre-dia { display: block; }
+  .grilla th.dia .num-dia { display: block; color: var(--suave); font-weight: 400; font-size: .9rem; }
+  .grilla th.dia.es-hoy { background: var(--hoy); border: 1px solid var(--hoy-borde); }
+  .grilla th.hora { text-align: right; padding-right: 10px; color: var(--suave); white-space: nowrap; width: 5em; }
+  .grilla td { padding: 0; }
+
+  .turno {
+    width: 100%; min-height: 64px; text-align: left; padding: 8px 12px;
+    border-radius: 10px; display: flex; flex-direction: column; justify-content: center;
+  }
+  .turno.libre { background: var(--libre); border: 1px dashed var(--libre-borde); color: var(--acento-oscuro); }
+  .turno.libre:hover { background: var(--libre-hover); }
+  .turno.ocupado { background: var(--ocupado); border: 1px solid var(--ocupado-borde); color: var(--ocupado-texto); }
+  .turno.ocupado:hover { background: #d8e0ee; }
+  .turno.ocupado .quien { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .turno.ocupado .que { font-size: .85rem; }
+  .turno.pasado.libre { background: var(--pasado); border: 1px solid transparent; color: #a9a59d; cursor: default; }
+  .turno.pasado.ocupado { opacity: .7; }
+  .cerrado { min-height: 64px; border-radius: 10px; background: repeating-linear-gradient(45deg, #f3f0ea, #f3f0ea 8px, #ece8e0 8px, #ece8e0 16px); }
+
+  .leyenda { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; color: var(--suave); font-size: .9rem; }
+  .leyenda span::before { content: ""; display: inline-block; width: 16px; height: 16px; border-radius: 4px; margin-right: 6px; vertical-align: -2px; }
+  .leyenda .l-libre::before { background: var(--libre); border: 1px dashed var(--libre-borde); }
+  .leyenda .l-ocupado::before { background: var(--ocupado); border: 1px solid var(--ocupado-borde); }
+  .leyenda .l-pasado::before { background: var(--pasado); }
+
+  /* Ventana */
+  dialog {
+    border: none; border-radius: 16px; padding: 0; width: min(520px, 92vw);
+    color: var(--texto); background: var(--panel); box-shadow: 0 20px 60px rgba(40,50,45,.25);
+  }
+  dialog::backdrop { background: rgba(47,58,54,.35); }
+  .ventana { padding: 24px 28px; }
+  .ventana h3 { margin: 0 0 4px; font-size: 1.4rem; }
+  .ventana .sub { margin: 0 0 18px; color: var(--suave); }
+  .campo { margin-bottom: 14px; }
+  .campo label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .campo input, .campo select {
+    width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 10px; background: #fff; color: var(--texto);
+  }
+  .campo input:focus, .campo select:focus { outline: 3px solid var(--libre-borde); border-color: var(--acento); }
+  .error { color: var(--peligro); font-size: .9rem; min-height: 1.2em; margin-top: 4px; }
+  .acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  dl.datos { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; }
+  dl.datos dt { color: var(--suave); }
+  dl.datos dd { margin: 0; font-weight: 600; word-break: break-word; }
+  .aviso { background: #fbeceb; color: #7d3a34; padding: 10px 14px; border-radius: 10px; margin-top: 14px; }
+  .aviso-almacen { background: #fbeceb; color: #7d3a34; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: none; }
+
+  @media (max-width: 800px) {
+    .resumen { grid-template-columns: 1fr; }
+    .contenedor { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="contenedor">
+  <header class="titulo">
+    <h1>Rulos · Turnos</h1>
+    <div class="fecha-hoy" id="fechaHoy"></div>
+  </header>
+
+  <div class="aviso-almacen" id="avisoAlmacen">
+    Atención: este navegador no permite guardar datos. Los turnos que cargues se van a perder al cerrar la página.
+  </div>
+
+  <section class="resumen">
+    <div class="tarjeta">
+      <h2>Turnos de hoy</h2>
+      <div class="numero" id="cantHoy">0</div>
+      <ul class="lista-hoy" id="listaHoy"></ul>
+    </div>
+    <div class="tarjeta">
+      <h2>Turnos de esta semana</h2>
+      <div class="numero" id="cantSemana">0</div>
+      <div class="desglose" id="desgloseSemana"></div>
+    </div>
+  </section>
+
+  <nav class="nav">
+    <div class="rango" id="rango"></div>
+    <div class="botones">
+      <button id="btnAnterior" type="button">← Semana anterior</button>
+      <button id="btnHoy" type="button">Esta semana</button>
+      <button id="btnSiguiente" type="button">Semana siguiente →</button>
+    </div>
+  </nav>
+
+  <div class="grilla-envoltura">
+    <table class="grilla" id="grilla"></table>
+  </div>
+  <div class="leyenda">
+    <span class="l-libre">Libre: clic para reservar</span>
+    <span class="l-ocupado">Ocupado: clic para ver o cancelar</span>
+    <span class="l-pasado">Ya pasó</span>
+  </div>
+</div>
+
+<!-- Ventana: reservar -->
+<dialog id="dlgReservar">
+  <form class="ventana" id="formReservar" novalidate>
+    <h3>Nuevo turno</h3>
+    <p class="sub" id="reservarCuando"></p>
+    <div class="campo">
+      <label for="inNombre">Nombre</label>
+      <input id="inNombre" autocomplete="off" maxlength="60">
+      <div class="error" id="errNombre"></div>
+    </div>
+    <div class="campo">
+      <label for="inTelefono">Teléfono</label>
+      <input id="inTelefono" type="tel" autocomplete="off" maxlength="30">
+      <div class="error" id="errTelefono"></div>
+    </div>
+    <div class="campo">
+      <label for="inServicio">Servicio</label>
+      <select id="inServicio">
+        <option value="">Elegí un servicio…</option>
+        <option>Corte</option>
+        <option>Color</option>
+        <option>Peinado</option>
+      </select>
+      <div class="error" id="errServicio"></div>
+    </div>
+    <div class="acciones">
+      <button type="button" id="btnCancelarReserva">Volver</button>
+      <button type="submit" class="primario">Reservar turno</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Ventana: ver turno -->
+<dialog id="dlgVer">
+  <div class="ventana">
+    <h3>Turno reservado</h3>
+    <p class="sub" id="verCuando"></p>
+    <dl class="datos">
+      <dt>Nombre</dt><dd id="verNombre"></dd>
+      <dt>Teléfono</dt><dd id="verTelefono"></dd>
+      <dt>Servicio</dt><dd id="verServicio"></dd>
+    </dl>
+    <div class="aviso" id="confirmarCancelar" hidden>¿Seguro que querés cancelar este turno? El horario va a quedar libre.</div>
+    <div class="acciones">
+      <button type="button" id="btnCerrarVer">Cerrar</button>
+      <button type="button" class="primario" id="btnWhatsApp">Recordar por WhatsApp</button>
+      <button type="button" class="peligro" id="btnCancelarTurno">Cancelar turno</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  "use strict";
+
+  var CLAVE = "rulos-turnos-v1";
+  var DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  var MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  // Horario: lunes a viernes 9 a 18, sábado 9 a 13. Turnos de una hora.
+  var APERTURA = 9;
+  function horaCierre(indiceDia) { return indiceDia === 5 ? 13 : 18; }
+  var HORAS = []; for (var h = APERTURA; h < 18; h++) HORAS.push(h);
+
+  // ---------- Guardado ----------
+  var almacenOk = true;
+  function cargar() {
+    try {
+      var txt = localStorage.getItem(CLAVE);
+      var datos = txt ? JSON.parse(txt) : {};
+      return (datos && typeof datos === "object") ? datos : {};
+    } catch (e) { almacenOk = false; return {}; }
+  }
+  function guardar() {
+    try { localStorage.setItem(CLAVE, JSON.stringify(turnos)); }
+    catch (e) { almacenOk = false; mostrarAvisoAlmacen(); }
+  }
+  function mostrarAvisoAlmacen() {
+    document.getElementById("avisoAlmacen").style.display = almacenOk ? "none" : "block";
+  }
+  var turnos = cargar();
+
+  // ---------- Fechas (siempre en hora local) ----------
+  function dos(n) { return (n < 10 ? "0" : "") + n; }
+  function claveFecha(d) { return d.getFullYear() + "-" + dos(d.getMonth() + 1) + "-" + dos(d.getDate()); }
+  function claveTurno(d, hora) { return claveFecha(d) + " " + dos(hora); }
+  function lunesDe(d) {
+    var r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var dia = r.getDay(); // 0 domingo
+    var diff = dia === 0 ? 1 : 1 - dia; // domingo → muestra la semana que empieza mañana
+    r.setDate(r.getDate() + diff);
+    return r;
+  }
+  function sumarDias(d, n) { var r = new Date(d.getFullYear(), d.getMonth(), d.getDate()); r.setDate(r.getDate() + n); return r; }
+  function textoHora(h) { return dos(h) + ":00"; }
+  function textoFechaLarga(d, i) {
+    return DIAS[i] + " " + d.getDate() + " de " + MESES[d.getMonth()];
+  }
+  function yaPaso(d, hora) {
+    var inicio = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hora, 0, 0);
+    return inicio.getTime() < Date.now();
+  }
+
+  var lunesVisible = lunesDe(new Date());
+
+  // ---------- Dibujar ----------
+  function dibujar() {
+    var hoy = new Date();
+    var claveHoy = claveFecha(hoy);
+    var dias = [];
+    for (var i = 0; i < 6; i++) dias.push(sumarDias(lunesVisible, i));
+
+    document.getElementById("fechaHoy").textContent =
+      "Hoy: " + ["Domingo"].concat(DIAS)[hoy.getDay()] + " " + hoy.getDate() + " de " + MESES[hoy.getMonth()] + " de " + hoy.getFullYear();
+
+    var sab = dias[5];
+    document.getElementById("rango").textContent =
+      "Semana del " + dias[0].getDate() + " de " + MESES[dias[0].getMonth()] +
+      " al " + sab.getDate() + " de " + MESES[sab.getMonth()] + " de " + sab.getFullYear();
+
+    var tabla = document.getElementById("grilla");
+    tabla.innerHTML = "";
+
+    // Encabezado
+    var thead = document.createElement("thead");
+    var fila = document.createElement("tr");
+    var esquina = document.createElement("th"); esquina.className = "hora"; fila.appendChild(esquina);
+    dias.forEach(function (d, i) {
+      var th = document.createElement("th");
+      th.className = "dia" + (claveFecha(d) === claveHoy ? " es-hoy" : "");
+      th.scope = "col";
+      var n = document.createElement("span"); n.className = "nombre-dia"; n.textContent = DIAS[i] + (claveFecha(d) === claveHoy ? " (hoy)" : "");
+      var f = document.createElement("span"); f.className = "num-dia"; f.textContent = d.getDate() + " de " + MESES[d.getMonth()];
+      th.appendChild(n); th.appendChild(f);
+      fila.appendChild(th);
+    });
+    thead.appendChild(fila);
+    tabla.appendChild(thead);
+
+    // Cuerpo
+    var tbody = document.createElement("tbody");
+    HORAS.forEach(function (hora) {
+      var tr = document.createElement("tr");
+      var th = document.createElement("th"); th.className = "hora"; th.scope = "row"; th.textContent = textoHora(hora);
+      tr.appendChild(th);
+      dias.forEach(function (d, i) {
+        var td = document.createElement("td");
+        if (hora >= horaCierre(i)) {
+          var c = document.createElement("div"); c.className = "cerrado"; c.title = "Cerrado";
+          td.appendChild(c);
+        } else {
+          td.appendChild(botonTurno(d, i, hora));
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    tabla.appendChild(tbody);
+
+    dibujarResumen(dias, claveHoy);
+    mostrarAvisoAlmacen();
+  }
+
+  function botonTurno(d, i, hora) {
+    var clave = claveTurno(d, hora);
+    var t = turnos[clave];
+    var pasado = yaPaso(d, hora);
+    var b = document.createElement("button");
+    b.type = "button";
+    if (t) {
+      b.className = "turno ocupado" + (pasado ? " pasado" : "");
+      var q = document.createElement("span"); q.className = "quien"; q.textContent = t.nombre;
+      var s = document.createElement("span"); s.className = "que"; s.textContent = t.servicio;
+      b.appendChild(q); b.appendChild(s);
+      b.setAttribute("aria-label", textoFechaLarga(d, i) + ", " + textoHora(hora) + ": ocupado por " + t.nombre + ", " + t.servicio);
+      b.addEventListener("click", function () { abrirVer(d, i, hora); });
+    } else if (pasado) {
+      b.className = "turno libre pasado";
+      b.textContent = "—";
+      b.disabled = true;
+      b.setAttribute("aria-label", textoFechaLarga(d, i) + ", " + textoHora(hora) + ": ya pasó");
+    } else {
+      b.className = "turno libre";
+      b.textContent = "Libre";
+      b.setAttribute("aria-label", textoFechaLarga(d, i) + ", " + textoHora(hora) + ": libre, reservar");
+      b.addEventListener("click", function () { abrirReservar(d, i, hora); });
+    }
+    return b;
+  }
+
+  function dibujarResumen(dias, claveHoy) {
+    // Hoy (siempre el día real de hoy, aunque se esté mirando otra semana)
+    var deHoy = Object.keys(turnos).filter(function (k) { return k.slice(0, 10) === claveHoy; }).sort();
+    document.getElementById("cantHoy").textContent = deHoy.length;
+    var ul = document.getElementById("listaHoy");
+    ul.innerHTML = "";
+    if (deHoy.length === 0) {
+      var li0 = document.createElement("li"); li0.className = "vacio"; li0.textContent = "No hay turnos para hoy.";
+      ul.appendChild(li0);
+    }
+    deHoy.forEach(function (k) {
+      var t = turnos[k];
+      var li = document.createElement("li");
+      var h = document.createElement("span"); h.className = "hora"; h.textContent = k.slice(11) + ":00";
+      var n = document.createElement("span"); n.textContent = t.nombre;
+      var s = document.createElement("span"); s.className = "serv"; s.textContent = "· " + t.servicio;
+      li.appendChild(h); li.appendChild(n); li.appendChild(s);
+      ul.appendChild(li);
+    });
+
+    // Semana visible
+    var fechas = dias.map(claveFecha);
+    var deSemana = Object.keys(turnos).filter(function (k) { return fechas.indexOf(k.slice(0, 10)) !== -1; });
+    document.getElementById("cantSemana").textContent = deSemana.length;
+    var cuenta = { Corte: 0, Color: 0, Peinado: 0 };
+    deSemana.forEach(function (k) { var s = turnos[k].servicio; if (cuenta[s] !== undefined) cuenta[s]++; });
+    var total = 0; dias.forEach(function (_, i) { total += horaCierre(i) - APERTURA; });
+    document.getElementById("desgloseSemana").textContent =
+      "Corte " + cuenta.Corte + " · Color " + cuenta.Color + " · Peinado " + cuenta.Peinado +
+      " — quedan " + (total - deSemana.length) + " horarios de " + total;
+    var esActual = claveFecha(lunesVisible) === claveFecha(lunesDe(new Date()));
+    document.querySelector(".resumen .tarjeta:nth-child(2) h2").textContent =
+      esActual ? "Turnos de esta semana" : "Turnos de la semana que estás viendo";
+  }
+
+  // ---------- Reservar ----------
+  var dlgReservar = document.getElementById("dlgReservar");
+  var seleccion = null;
+
+  function abrirReservar(d, i, hora) {
+    seleccion = { d: d, i: i, hora: hora };
+    document.getElementById("reservarCuando").textContent = textoFechaLarga(d, i) + ", de " + textoHora(hora) + " a " + textoHora(hora + 1);
+    document.getElementById("formReservar").reset();
+    ["errNombre", "errTelefono", "errServicio"].forEach(function (id) { document.getElementById(id).textContent = ""; });
+    dlgReservar.showModal();
+    document.getElementById("inNombre").focus();
+  }
+
+  document.getElementById("formReservar").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var nombre = document.getElementById("inNombre").value.trim();
+    var tel = document.getElementById("inTelefono").value.trim();
+    var serv = document.getElementById("inServicio").value;
+    var ok = true;
+    var digitos = tel.replace(/\D/g, "");
+    document.getElementById("errNombre").textContent = nombre ? "" : "Escribí el nombre.";
+    if (!nombre) ok = false;
+    if (!tel) { document.getElementById("errTelefono").textContent = "Escribí el teléfono."; ok = false; }
+    else if (digitos.length < 6 || /[^\d\s()+\-]/.test(tel)) { document.getElementById("errTelefono").textContent = "Revisá el teléfono: solo números (mínimo 6)."; ok = false; }
+    else document.getElementById("errTelefono").textContent = "";
+    document.getElementById("errServicio").textContent = serv ? "" : "Elegí un servicio.";
+    if (!serv) ok = false;
+    if (!ok) return;
+
+    var clave = claveTurno(seleccion.d, seleccion.hora);
+    turnos = cargar(); // por si hay otra pestaña abierta
+    if (turnos[clave]) {
+      document.getElementById("errServicio").textContent = "Ese horario ya se ocupó. Cerrá y elegí otro.";
+      dibujar();
+      return;
+    }
+    turnos[clave] = { nombre: nombre, telefono: tel, servicio: serv, creado: new Date().toISOString() };
+    guardar();
+    dlgReservar.close();
+    dibujar();
+  });
+  document.getElementById("btnCancelarReserva").addEventListener("click", function () { dlgReservar.close(); });
+
+  // ---------- Ver / cancelar ----------
+  var dlgVer = document.getElementById("dlgVer");
+  var btnCancelarTurno = document.getElementById("btnCancelarTurno");
+  var confirmando = false;
+
+  function abrirVer(d, i, hora) {
+    seleccion = { d: d, i: i, hora: hora };
+    var t = turnos[claveTurno(d, hora)];
+    if (!t) return;
+    document.getElementById("verCuando").textContent = textoFechaLarga(d, i) + ", de " + textoHora(hora) + " a " + textoHora(hora + 1);
+    document.getElementById("verNombre").textContent = t.nombre;
+    document.getElementById("verTelefono").textContent = t.telefono;
+    document.getElementById("verServicio").textContent = t.servicio;
+    confirmando = false;
+    document.getElementById("confirmarCancelar").hidden = true;
+    btnCancelarTurno.textContent = "Cancelar turno";
+    document.getElementById("btnCerrarVer").textContent = "Cerrar";
+    dlgVer.showModal();
+    document.getElementById("btnCerrarVer").focus();
+  }
+
+  btnCancelarTurno.addEventListener("click", function () {
+    if (!confirmando) {
+      confirmando = true;
+      document.getElementById("confirmarCancelar").hidden = false;
+      btnCancelarTurno.textContent = "Sí, cancelar";
+      document.getElementById("btnCerrarVer").textContent = "No, dejarlo";
+      return;
+    }
+    turnos = cargar();
+    delete turnos[claveTurno(seleccion.d, seleccion.hora)];
+    guardar();
+    dlgVer.close();
+    dibujar();
+  });
+  document.getElementById("btnCerrarVer").addEventListener("click", function () { dlgVer.close(); });
+
+  // ---------- Recordatorio por WhatsApp ----------
+  // Pasa el teléfono al formato internacional de celulares de Argentina (549 + característica + número),
+  // sacando el 0 de la característica y el 15 si lo escribieron.
+  function telefonoWhatsApp(tel) {
+    var d = tel.replace(/\D/g, "");
+    if (d.indexOf("00") === 0) d = d.slice(2);
+    if (d.indexOf("54") === 0) { d = d.slice(2); if (d.charAt(0) === "9") d = d.slice(1); }
+    d = d.replace(/^0/, "");
+    if (d.length === 12) {
+      for (var largo = 2; largo <= 4; largo++) {
+        if (d.substr(largo, 2) === "15") { d = d.slice(0, largo) + d.slice(largo + 2); break; }
+      }
+    }
+    return "549" + d;
+  }
+
+  document.getElementById("btnWhatsApp").addEventListener("click", function () {
+    var t = turnos[claveTurno(seleccion.d, seleccion.hora)];
+    if (!t) return;
+    var d = seleccion.d;
+    var dia = DIAS[seleccion.i].toLowerCase() + " " + d.getDate() + " de " + MESES[d.getMonth()];
+    var mensaje = "Hola " + t.nombre + ", te recordamos tu turno de " + t.servicio.toLowerCase() +
+      " en Rulos el " + dia + " a las " + textoHora(seleccion.hora) + ". ¡Te esperamos!";
+    var url = "https://wa.me/" + telefonoWhatsApp(t.telefono) + "?text=" + encodeURIComponent(mensaje);
+    window.open(url, "_blank", "noopener");
+  });
+
+  // ---------- Navegación ----------
+  document.getElementById("btnAnterior").addEventListener("click", function () { lunesVisible = sumarDias(lunesVisible, -7); dibujar(); });
+  document.getElementById("btnSiguiente").addEventListener("click", function () { lunesVisible = sumarDias(lunesVisible, 7); dibujar(); });
+  document.getElementById("btnHoy").addEventListener("click", function () { lunesVisible = lunesDe(new Date()); dibujar(); });
+
+  // Si otra pestaña cambia los turnos, actualizar.
+  window.addEventListener("storage", function (e) { if (e.key === CLAVE) { turnos = cargar(); dibujar(); } });
+  // Refrescar cada minuto para que los horarios que van pasando se marquen.
+  setInterval(function () { if (!dlgReservar.open && !dlgVer.open) dibujar(); }, 60000);
+
+  dibujar();
+})();
+</script>
+</body>
+</html>
