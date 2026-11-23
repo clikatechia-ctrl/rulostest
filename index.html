@@ -182,8 +182,9 @@
       <label for="inPedido" class="visualmente-oculto" style="position:absolute;left:-9999px">Pedido para el asistente</label>
       <input id="inPedido" maxlength="500" autocomplete="off" placeholder="Ej.: ¿qué horarios libres hay el jueves a la tarde?">
       <button type="submit" class="primario" id="btnPedido">Preguntar</button>
+      <button type="button" id="btnNuevaCharla">Empezar de nuevo</button>
     </form>
-    <div class="ayuda" id="ayudaPedido">Escribí cada pedido completo: el asistente no recuerda los anteriores. Máximo 500 caracteres.</div>
+    <div class="ayuda" id="ayudaPedido">Podés consultar horarios, reservar, buscar, cambiar o cancelar turnos. El asistente tiene en cuenta los últimos 6 mensajes de la charla. Máximo 500 caracteres.</div>
     <ul class="charla" id="charla"></ul>
   </section>
 
@@ -271,11 +272,24 @@
 
   // ---------- Guardado ----------
   var almacenOk = true;
+  function nuevoId() {
+    return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
   function cargar() {
     try {
       var txt = localStorage.getItem(CLAVE);
       var datos = txt ? JSON.parse(txt) : {};
-      return (datos && typeof datos === "object") ? datos : {};
+      if (!datos || typeof datos !== "object") return {};
+      // Cada turno tiene un id. A los guardados antes de que existiera se les agrega uno, sin tocar nada más.
+      var vistos = {}, agregados = false;
+      Object.keys(datos).forEach(function (k) {
+        var t = datos[k];
+        if (!t || typeof t !== "object") return;
+        if (typeof t.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(t.id) || vistos[t.id]) { t.id = nuevoId(); agregados = true; }
+        vistos[t.id] = true;
+      });
+      if (agregados) localStorage.setItem(CLAVE, JSON.stringify(datos));
+      return datos;
     } catch (e) { almacenOk = false; return {}; }
   }
   function guardar() {
@@ -466,7 +480,7 @@
       dibujar();
       return;
     }
-    turnos[clave] = { nombre: nombre, telefono: tel, servicio: serv, creado: new Date().toISOString() };
+    turnos[clave] = { id: nuevoId(), nombre: nombre, telefono: tel, servicio: serv, creado: new Date().toISOString() };
     guardar();
     dlgReservar.close();
     dibujar();
@@ -554,10 +568,28 @@
   var btnPedido = document.getElementById("btnPedido");
   var charla = document.getElementById("charla");
   var SERVICIOS_OK = ["Corte", "Color", "Peinado"];
+  var MAX_HISTORIAL = 6;
+  var MAX_TEXTO_HISTORIAL = 2000;
+  var historial = []; // mensajes de la charla: { rol: "usuario" | "asistente", texto }
 
   function ahoraLocal() {
     var d = new Date();
     return claveFecha(d) + " " + dos(d.getHours()) + ":" + dos(d.getMinutes());
+  }
+
+  // Turnos de hoy en adelante, sin teléfonos: lo que el asistente necesita para buscar y ver horarios.
+  function turnosParaAsistente() {
+    var hoy = claveFecha(new Date());
+    return Object.keys(turnos).filter(function (k) { return k.slice(0, 10) >= hoy; }).map(function (k) {
+      var t = turnos[k];
+      return { id: t.id, fecha: k.slice(0, 10), hora: k.slice(11) + ":00", nombre: t.nombre, servicio: t.servicio };
+    });
+  }
+
+  function claveDeId(id) {
+    var ks = Object.keys(turnos);
+    for (var n = 0; n < ks.length; n++) if (turnos[ks[n]].id === id) return ks[n];
+    return null;
   }
 
   // Muestra un intercambio arriba de todo (el más nuevo primero).
@@ -591,47 +623,107 @@
     var final;
     if (r.error) final = "error: " + r.error;
     else if (h.herramienta === "ver_horarios_libres") final = r.abierto === false ? "cerrado" : (r.libres && r.libres.length ? r.libres.join(", ") : "sin horarios libres");
+    else if (h.herramienta === "buscar_turnos") final = r.cantidad === 1 ? "1 turno" : (r.cantidad || 0) + " turnos";
     else if (h.herramienta === "reservar_turno") final = "reservado";
+    else if (h.herramienta === "cambiar_turno") final = "cambiado";
+    else if (h.herramienta === "cancelar_turno") final = "cancelado";
     else final = "listo";
     return "Herramienta " + h.herramienta + " (" + partes.join(", ") + ") → " + final;
   }
 
-  // Guarda una reserva que vino del asistente con los mismos controles que una carga a mano.
-  function guardarReservaDelAsistente(r) {
-    if (!r || typeof r !== "object") return "reserva con formato inválido";
-    if (typeof r.fecha !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)) return "fecha inválida";
-    var p = r.fecha.split("-").map(Number);
+  // Revisa un horario con las mismas reglas que la grilla. Devuelve { d, hora } o { error }.
+  function validarHorario(fecha, horaTexto) {
+    if (typeof fecha !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return { error: "fecha inválida" };
+    var p = fecha.split("-").map(Number);
     var d = new Date(p[0], p[1] - 1, p[2]);
-    if (claveFecha(d) !== r.fecha) return "fecha inválida";
+    if (claveFecha(d) !== fecha) return { error: "fecha inválida" };
     var i = d.getDay() - 1; // lunes = 0 … sábado = 5
-    var m = /^(\d{2}):00$/.exec(String(r.hora));
-    if (i < 0 || !m) return "horario inválido";
+    var m = /^(\d{2}):00$/.exec(String(horaTexto));
+    if (i < 0 || !m) return { error: "horario inválido" };
     var hora = Number(m[1]);
-    if (hora < APERTURA || hora >= horaCierre(i)) return "horario fuera de atención";
-    if (yaPaso(d, hora)) return "ese horario ya pasó";
+    if (hora < APERTURA || hora >= horaCierre(i)) return { error: "horario fuera de atención" };
+    if (yaPaso(d, hora)) return { error: "ese horario ya pasó" };
+    return { d: d, hora: hora };
+  }
+
+  // Cada función guarda lo que vino del asistente con los mismos controles que una carga a mano.
+  // Devuelven null si salió bien o el motivo si no.
+  function aplicarCancelado(c) {
+    if (!c || typeof c.id !== "string") return "cancelación con formato inválido";
+    var k = claveDeId(c.id);
+    if (!k) return "el turno ya no existe";
+    delete turnos[k];
+    guardar();
+    return null;
+  }
+
+  function aplicarCambio(c) {
+    if (!c || typeof c.id !== "string" || !c.desde) return "cambio con formato inválido";
+    var k = claveDeId(c.id);
+    if (!k) return "el turno ya no existe";
+    if (k !== c.desde.fecha + " " + String(c.desde.hora).slice(0, 2)) return "el turno se modificó mientras tanto";
+    var h = validarHorario(c.fecha, c.hora);
+    if (h.error) return h.error;
+    var nueva = claveTurno(h.d, h.hora);
+    if (turnos[nueva]) return "el horario nuevo ya estaba ocupado";
+    turnos[nueva] = turnos[k];
+    delete turnos[k];
+    guardar();
+    return null;
+  }
+
+  function aplicarReserva(r) {
+    if (!r || typeof r !== "object") return "reserva con formato inválido";
+    var h = validarHorario(r.fecha, r.hora);
+    if (h.error) return h.error;
     var nombre = typeof r.nombre === "string" ? r.nombre.trim() : "";
     if (!nombre || nombre.length > 60) return "nombre inválido";
     var tel = typeof r.telefono === "string" ? r.telefono.trim() : "";
     if (tel.length > 30) return "teléfono inválido";
     if (SERVICIOS_OK.indexOf(r.servicio) === -1) return "servicio inválido";
-    turnos = cargar(); // por si hay otra pestaña abierta
-    var clave = claveTurno(d, hora);
+    var clave = claveTurno(h.d, h.hora);
     if (turnos[clave]) return "el horario ya estaba ocupado";
-    turnos[clave] = { nombre: nombre, telefono: tel, servicio: r.servicio, creado: new Date().toISOString() };
+    var id = (typeof r.id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(r.id) && !claveDeId(r.id)) ? r.id : nuevoId();
+    turnos[clave] = { id: id, nombre: nombre, telefono: tel, servicio: r.servicio, creado: new Date().toISOString() };
     guardar();
     return null;
   }
 
+  // Aplica primero las cancelaciones (liberan horarios), después los cambios y al final las reservas.
+  // Devuelve un resumen de lo que quedó hecho, para la charla.
   function procesarRespuesta(caja, datos) {
     (datos.herramientas || []).forEach(function (h) { agregarLinea(caja, describirHerramienta(h), !!(h.resultado && h.resultado.error)); });
-    var huboReservas = false;
-    (datos.reservas || []).forEach(function (r) {
-      var problema = guardarReservaDelAsistente(r);
-      if (problema) agregarLinea(caja, "No se guardó la reserva de " + (r && r.nombre ? r.nombre : "?") + ": " + problema + ".", true);
-      else huboReservas = true;
+    turnos = cargar(); // por si hay otra pestaña abierta
+    var hechos = [];
+    (datos.cancelados || []).forEach(function (c) {
+      var problema = aplicarCancelado(c);
+      if (problema) agregarLinea(caja, "No se canceló el turno de " + (c && c.nombre ? c.nombre : "?") + ": " + problema + ".", true);
+      else hechos.push("cancelado el turno de " + c.nombre + " del " + c.fecha + " a las " + c.hora);
     });
-    if (huboReservas) dibujar();
+    (datos.cambios || []).forEach(function (c) {
+      var problema = aplicarCambio(c);
+      if (problema) agregarLinea(caja, "No se cambió el turno de " + (c && c.nombre ? c.nombre : "?") + ": " + problema + ".", true);
+      else hechos.push("cambiado el turno de " + c.nombre + " al " + c.fecha + " a las " + c.hora);
+    });
+    (datos.reservas || []).forEach(function (r) {
+      var problema = aplicarReserva(r);
+      if (problema) agregarLinea(caja, "No se guardó la reserva de " + (r && r.nombre ? r.nombre : "?") + ": " + problema + ".", true);
+      else hechos.push("reservado un turno de " + r.servicio + " para " + r.nombre + " el " + r.fecha + " a las " + r.hora);
+    });
+    if (hechos.length) dibujar();
+    return hechos;
   }
+
+  function sumarAlHistorial(rol, texto) {
+    historial.push({ rol: rol, texto: texto.slice(0, MAX_TEXTO_HISTORIAL) });
+    if (historial.length > MAX_HISTORIAL) historial = historial.slice(-MAX_HISTORIAL);
+  }
+
+  document.getElementById("btnNuevaCharla").addEventListener("click", function () {
+    historial = [];
+    charla.innerHTML = "";
+    inPedido.focus();
+  });
 
   formAsistente.addEventListener("submit", function (ev) {
     ev.preventDefault();
@@ -648,13 +740,17 @@
     fetch("/api/agente", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pedido: pedido, ahora: ahoraLocal(), ocupados: Object.keys(turnos) })
+      body: JSON.stringify({ pedido: pedido, historial: historial.slice(-MAX_HISTORIAL), ahora: ahoraLocal(), turnos: turnosParaAsistente() })
     })
       .then(function (r) { return r.json().catch(function () { return { error: "Respuesta inesperada del servidor (" + r.status + ")." }; }); })
       .then(function (datos) {
         if (datos.error) { caja.li.className = "ia fallo"; caja.texto.textContent = datos.error; }
         else caja.texto.textContent = datos.respuesta || "";
-        procesarRespuesta(caja, datos);
+        var hechos = procesarRespuesta(caja, datos);
+        if (!datos.error || hechos.length) {
+          sumarAlHistorial("usuario", pedido);
+          sumarAlHistorial("asistente", (datos.error ? "" : (datos.respuesta || "")) + (hechos.length ? "\n(Hecho: " + hechos.join("; ") + ".)" : ""));
+        }
       })
       .catch(function () {
         caja.li.className = "ia fallo";
