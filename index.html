@@ -128,6 +128,24 @@
   .aviso { background: #fbeceb; color: #7d3a34; padding: 10px 14px; border-radius: 10px; margin-top: 14px; }
   .aviso-almacen { background: #fbeceb; color: #7d3a34; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; display: none; }
 
+  /* Asistente */
+  .asistente { margin-bottom: 20px; }
+  .asistente form { display: flex; gap: 10px; flex-wrap: wrap; }
+  .asistente input {
+    flex: 1 1 320px; font: inherit; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 10px; background: #fff; color: var(--texto);
+  }
+  .asistente input:focus { outline: 3px solid var(--libre-borde); border-color: var(--acento); }
+  .asistente .ayuda { color: var(--suave); font-size: .85rem; margin-top: 6px; }
+  .charla { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .charla li { border-radius: 10px; padding: 10px 14px; }
+  .charla .yo { background: #f1ede6; }
+  .charla .ia { background: var(--libre); border: 1px solid var(--libre-borde); }
+  .charla .ia.fallo { background: #fbeceb; border-color: #e6c2be; color: #7d3a34; }
+  .charla .quien-habla { display: block; font-size: .8rem; color: var(--suave); font-weight: 600; margin-bottom: 2px; }
+  .charla .texto { white-space: pre-wrap; }
+  .charla .uso { font-family: Consolas, "Courier New", monospace; font-size: .8rem; color: var(--suave); margin-top: 6px; word-break: break-word; }
+  .charla .uso.mal { color: var(--peligro); }
+
   @media (max-width: 800px) {
     .resumen { grid-template-columns: 1fr; }
     .contenedor { padding: 16px; }
@@ -156,6 +174,17 @@
       <div class="numero" id="cantSemana">0</div>
       <div class="desglose" id="desgloseSemana"></div>
     </div>
+  </section>
+
+  <section class="tarjeta asistente">
+    <h2>Asistente</h2>
+    <form id="formAsistente">
+      <label for="inPedido" class="visualmente-oculto" style="position:absolute;left:-9999px">Pedido para el asistente</label>
+      <input id="inPedido" maxlength="500" autocomplete="off" placeholder="Ej.: ¿qué horarios libres hay el jueves a la tarde?">
+      <button type="submit" class="primario" id="btnPedido">Preguntar</button>
+    </form>
+    <div class="ayuda" id="ayudaPedido">Escribí cada pedido completo: el asistente no recuerda los anteriores. Máximo 500 caracteres.</div>
+    <ul class="charla" id="charla"></ul>
   </section>
 
   <nav class="nav">
@@ -455,7 +484,8 @@
     if (!t) return;
     document.getElementById("verCuando").textContent = textoFechaLarga(d, i) + ", de " + textoHora(hora) + " a " + textoHora(hora + 1);
     document.getElementById("verNombre").textContent = t.nombre;
-    document.getElementById("verTelefono").textContent = t.telefono;
+    document.getElementById("verTelefono").textContent = t.telefono || "—";
+    document.getElementById("btnWhatsApp").hidden = !t.telefono;
     document.getElementById("verServicio").textContent = t.servicio;
     confirmando = false;
     document.getElementById("confirmarCancelar").hidden = true;
@@ -517,6 +547,126 @@
   window.addEventListener("storage", function (e) { if (e.key === CLAVE) { turnos = cargar(); dibujar(); } });
   // Refrescar cada minuto para que los horarios que van pasando se marquen.
   setInterval(function () { if (!dlgReservar.open && !dlgVer.open) dibujar(); }, 60000);
+
+  // ---------- Asistente con IA ----------
+  var formAsistente = document.getElementById("formAsistente");
+  var inPedido = document.getElementById("inPedido");
+  var btnPedido = document.getElementById("btnPedido");
+  var charla = document.getElementById("charla");
+  var SERVICIOS_OK = ["Corte", "Color", "Peinado"];
+
+  function ahoraLocal() {
+    var d = new Date();
+    return claveFecha(d) + " " + dos(d.getHours()) + ":" + dos(d.getMinutes());
+  }
+
+  // Muestra un intercambio arriba de todo (el más nuevo primero).
+  function agregarIntercambio(pedido) {
+    var li = document.createElement("li");
+    li.className = "yo";
+    var q = document.createElement("span"); q.className = "quien-habla"; q.textContent = "Vos";
+    var t = document.createElement("div"); t.className = "texto"; t.textContent = pedido;
+    li.appendChild(q); li.appendChild(t);
+    var resp = document.createElement("li");
+    resp.className = "ia";
+    var q2 = document.createElement("span"); q2.className = "quien-habla"; q2.textContent = "Asistente";
+    var t2 = document.createElement("div"); t2.className = "texto"; t2.textContent = "Pensando…";
+    resp.appendChild(q2); resp.appendChild(t2);
+    charla.insertBefore(resp, charla.firstChild);
+    charla.insertBefore(li, charla.firstChild);
+    return { li: resp, texto: t2 };
+  }
+
+  function agregarLinea(caja, texto, mal) {
+    var d = document.createElement("div");
+    d.className = "uso" + (mal ? " mal" : "");
+    d.textContent = texto;
+    caja.li.appendChild(d);
+  }
+
+  function describirHerramienta(h) {
+    var entrada = h.entrada && typeof h.entrada === "object" ? h.entrada : {};
+    var partes = Object.keys(entrada).map(function (k) { return k + ": " + JSON.stringify(entrada[k]); });
+    var r = h.resultado || {};
+    var final;
+    if (r.error) final = "error: " + r.error;
+    else if (h.herramienta === "ver_horarios_libres") final = r.abierto === false ? "cerrado" : (r.libres && r.libres.length ? r.libres.join(", ") : "sin horarios libres");
+    else if (h.herramienta === "reservar_turno") final = "reservado";
+    else final = "listo";
+    return "Herramienta " + h.herramienta + " (" + partes.join(", ") + ") → " + final;
+  }
+
+  // Guarda una reserva que vino del asistente con los mismos controles que una carga a mano.
+  function guardarReservaDelAsistente(r) {
+    if (!r || typeof r !== "object") return "reserva con formato inválido";
+    if (typeof r.fecha !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)) return "fecha inválida";
+    var p = r.fecha.split("-").map(Number);
+    var d = new Date(p[0], p[1] - 1, p[2]);
+    if (claveFecha(d) !== r.fecha) return "fecha inválida";
+    var i = d.getDay() - 1; // lunes = 0 … sábado = 5
+    var m = /^(\d{2}):00$/.exec(String(r.hora));
+    if (i < 0 || !m) return "horario inválido";
+    var hora = Number(m[1]);
+    if (hora < APERTURA || hora >= horaCierre(i)) return "horario fuera de atención";
+    if (yaPaso(d, hora)) return "ese horario ya pasó";
+    var nombre = typeof r.nombre === "string" ? r.nombre.trim() : "";
+    if (!nombre || nombre.length > 60) return "nombre inválido";
+    var tel = typeof r.telefono === "string" ? r.telefono.trim() : "";
+    if (tel.length > 30) return "teléfono inválido";
+    if (SERVICIOS_OK.indexOf(r.servicio) === -1) return "servicio inválido";
+    turnos = cargar(); // por si hay otra pestaña abierta
+    var clave = claveTurno(d, hora);
+    if (turnos[clave]) return "el horario ya estaba ocupado";
+    turnos[clave] = { nombre: nombre, telefono: tel, servicio: r.servicio, creado: new Date().toISOString() };
+    guardar();
+    return null;
+  }
+
+  function procesarRespuesta(caja, datos) {
+    (datos.herramientas || []).forEach(function (h) { agregarLinea(caja, describirHerramienta(h), !!(h.resultado && h.resultado.error)); });
+    var huboReservas = false;
+    (datos.reservas || []).forEach(function (r) {
+      var problema = guardarReservaDelAsistente(r);
+      if (problema) agregarLinea(caja, "No se guardó la reserva de " + (r && r.nombre ? r.nombre : "?") + ": " + problema + ".", true);
+      else huboReservas = true;
+    });
+    if (huboReservas) dibujar();
+  }
+
+  formAsistente.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var pedido = inPedido.value.trim();
+    if (!pedido) return;
+    if (pedido.length > 500) { alert("El pedido es demasiado largo (máximo 500 caracteres)."); return; }
+    var caja = agregarIntercambio(pedido);
+    inPedido.value = "";
+    btnPedido.disabled = true;
+    inPedido.disabled = true;
+    btnPedido.textContent = "Pensando…";
+
+    turnos = cargar();
+    fetch("/api/agente", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pedido: pedido, ahora: ahoraLocal(), ocupados: Object.keys(turnos) })
+    })
+      .then(function (r) { return r.json().catch(function () { return { error: "Respuesta inesperada del servidor (" + r.status + ")." }; }); })
+      .then(function (datos) {
+        if (datos.error) { caja.li.className = "ia fallo"; caja.texto.textContent = datos.error; }
+        else caja.texto.textContent = datos.respuesta || "";
+        procesarRespuesta(caja, datos);
+      })
+      .catch(function () {
+        caja.li.className = "ia fallo";
+        caja.texto.textContent = "No se pudo conectar con el asistente. Revisá la conexión a internet.";
+      })
+      .then(function () {
+        btnPedido.disabled = false;
+        inPedido.disabled = false;
+        btnPedido.textContent = "Preguntar";
+        inPedido.focus();
+      });
+  });
 
   dibujar();
 })();
